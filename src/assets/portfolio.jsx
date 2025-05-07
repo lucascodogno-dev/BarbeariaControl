@@ -388,7 +388,7 @@ const Portfolio = () => {
               viewport={{ once: true }} // Garante que a animação ocorra apenas uma vez
             >
               <img
-                src="/profile-image.jpeg" // Substitua pelo caminho da sua imagem de perfil
+                src="/2842680.jpg" // Substitua pelo caminho da sua imagem de perfil
                 alt="Sobre Mim"
                 className="rounded-lg shadow-lg"
               />
