@@ -6,7 +6,7 @@ let socket;
 
 try {
   // Obtém a URL do servidor Socket.io das variáveis de ambiente
-  const socketServerUrl = import.meta.env.VITE_SOCKET_SERVER_URL || 'http://localhost:5000';
+  const socketServerUrl = import.meta.env.VITE_SOCKET_SERVER_URL || 'https://barbershop-backend.netlify.app/';
   
   // Cria a instância do socket com configurações de reconexão
   socket = io(socketServerUrl, {
