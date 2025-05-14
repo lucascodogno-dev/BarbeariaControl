@@ -22,9 +22,9 @@ const ServicesPage = () => {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+      {/* <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
         Gerenciar Serviços
-      </h1>
+      </h1> */}
       
       <ServiceManager />
     </div>
