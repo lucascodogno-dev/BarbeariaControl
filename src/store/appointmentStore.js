@@ -9,10 +9,11 @@ import {
   query,
   where,
   orderBy,
+  getDoc,
 } from "firebase/firestore";
 import { db } from "../services/firebase";
 import socket from "../services/socket";
-import { generateTimeSlots, isPastTime } from "../utils/date";
+import { generateTimeSlots, isPastTime, isTimeBetween } from "../utils/date";
 
 const useAppointmentStore = create((set, get) => ({
   appointments: [],
@@ -44,66 +45,111 @@ const useAppointmentStore = create((set, get) => ({
   },
 
   // Carrega agendamentos para uma data específica
-  fetchAppointmentsByDate: async (date) => {
-    set({ loading: true, error: null });
-    try {
-      const dateStr = date.toISOString().split("T")[0];
-      const appointmentsRef = collection(db, "appointments");
-      const q = query(
-        appointmentsRef,
-        where("date", "==", dateStr),
-        orderBy("time")
+ // Atualize a função fetchAppointmentsByDate
+fetchAppointmentsByDate: async (date) => {
+  set({ loading: true, error: null });
+  try {
+    const dateStr = date.toISOString().split("T")[0];
+    const dayOfWeek = date.getDay();
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayKey = dayNames[dayOfWeek];
+
+    // Busca os horários de funcionamento
+    const scheduleRef = doc(db, "businessHours", dayKey);
+    const scheduleSnapshot = await getDoc(scheduleRef);
+    const businessHours = scheduleSnapshot.exists() ? scheduleSnapshot.data() : null;
+
+    if (!businessHours || businessHours.isClosed) {
+      console.warn(`[Agendamento] Dia fechado (${dayKey}).`);
+      set({
+        appointments: [],
+        availableSlots: [],
+        loading: false,
+        selectedDate: date
+      });
+      return;
+    }
+
+    // Verificação defensiva de horários válidos
+    if (!businessHours.openingTime || !businessHours.closingTime) {
+      console.error(`[Agendamento] Horários inválidos para ${dayKey}:`, businessHours);
+      set({
+        appointments: [],
+        availableSlots: [],
+        loading: false,
+        selectedDate: date
+      });
+      return;
+    }
+
+    // Busca os agendamentos do dia
+    const appointmentsRef = collection(db, "appointments");
+    const q = query(
+      appointmentsRef,
+      where("date", "==", dateStr),
+      orderBy("time")
+    );
+    const querySnapshot = await getDocs(q);
+    const appointments = [];
+    querySnapshot.forEach((doc) => {
+      appointments.push({ id: doc.id, ...doc.data() });
+    });
+
+    // Gera todos os horários possíveis
+    const allSlots = generateTimeSlots(
+      businessHours.openingTime,
+      businessHours.closingTime,
+      businessHours.slotDuration || 30
+    );
+
+    // Remove horário de almoço
+    let filteredSlots = allSlots;
+    if (
+      businessHours.hasLunchBreak &&
+      businessHours.lunchStart &&
+      businessHours.lunchEnd
+    ) {
+      filteredSlots = allSlots.filter(
+        (slot) => !isTimeBetween(slot, businessHours.lunchStart, businessHours.lunchEnd)
+      );
+    }
+
+    // Elimina horários já passados (somente se for hoje)
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const isToday = dateStr === todayStr;
+
+    const availableSlots = filteredSlots.map((slot) => {
+      const [hour, minute] = slot.split(":").map(Number);
+      const slotTime = new Date(date);
+      slotTime.setHours(hour, minute, 0, 0);
+
+      const isPastSlotToday = isToday && (slotTime <= now);
+      const hasAppointment = appointments.some(
+        (app) => app.time === slot && app.status !== "cancelado"
       );
 
-      const querySnapshot = await getDocs(q);
+      return {
+        time: slot,
+        isBooked: isPastSlotToday || hasAppointment,
+      };
+    });
 
-      const appointments = [];
-      querySnapshot.forEach((doc) => {
-        appointments.push({ id: doc.id, ...doc.data() });
-      });
+    set({
+      appointments,
+      availableSlots,
+      loading: false,
+      selectedDate: date,
+    });
 
-      const allSlots = generateTimeSlots("08:00", "16:00", 30);
+    console.log(`[Agendamento] Horários carregados para ${dayKey}:`, availableSlots);
+  } catch (error) {
+    console.error("Erro ao buscar agendamentos por data:", error);
+    set({ error: error.message, loading: false });
+  }
+},
 
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, '0');
-      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-      const isToday = dateStr === todayStr;
-
-      const availableSlots = allSlots.map((slot) => {
-        const [hour, minute] = slot.split(":").map(Number);
-        const slotTime = new Date(date);
-        slotTime.setHours(hour, minute, 0, 0);
-
-        const after20h = now.getHours() >= 20;
-        const isAfter20hToday = isToday && after20h;
-        const isPastSlotToday = isToday && (slotTime <= now || hour >= 20);
-        const hasAppointment = appointments.some(
-          (app) => app.time === slot && app.status !== "cancelado"
-        );
-
-        const isSlotUnavailable =
-          (isToday && isAfter20hToday) ||
-          (isToday && isPastSlotToday) ||
-          (!isToday && hasAppointment) ||
-          (isToday && hasAppointment);
-
-        return {
-          time: slot,
-          isBooked: isSlotUnavailable,
-        };
-      });
-
-      set({
-        appointments,
-        availableSlots,
-        loading: false,
-        selectedDate: date,
-      });
-    } catch (error) {
-      console.error("Erro ao buscar agendamentos por data:", error);
-      set({ error: error.message, loading: false });
-    }
-  },
 
   // Cria um novo agendamento
   createAppointment: async (appointmentData) => {
@@ -252,65 +298,78 @@ const useAppointmentStore = create((set, get) => ({
   setSelectedTime: (time) => set({ selectedTime: time }),
 
   // Escuta eventos socket
-  setupSocketListeners: () => {
-    socket.on("appointment-created", (appointment) => {
-      const state = get();
+setupSocketListeners: () => {
+  const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-      const selectedStr = state.selectedDate
-        ? state.selectedDate.toISOString().split("T")[0]
-        : null;
+  socket.on("appointment-created", (appointment) => {
+    const state = get();
+    const selectedStr = state.selectedDate
+      ? state.selectedDate.toISOString().split("T")[0]
+      : null;
 
-      if (appointment.date === selectedStr) {
-        const updatedSlots = state.availableSlots.map((slot) => {
-          if (slot.time === appointment.time) {
-            return { ...slot, isBooked: true };
-          }
-          return slot;
-        });
+    if (appointment.date === selectedStr) {
+      const updatedSlots = state.availableSlots.map((slot) => {
+        if (slot.time === appointment.time) {
+          return { ...slot, isBooked: true };
+        }
+        return slot;
+      });
 
-        set({
-          appointments: [...state.appointments, appointment],
-          availableSlots: updatedSlots,
-        });
-      } else {
-        set({
-          appointments: [...state.appointments, appointment],
-        });
-      }
-    });
+      set({
+        appointments: [...state.appointments, appointment],
+        availableSlots: updatedSlots,
+      });
+    } else {
+      set({
+        appointments: [...state.appointments, appointment],
+      });
+    }
+  });
 
-    socket.on("appointment-updated", (updatedAppointment) => {
-      set((state) => ({
-        appointments: state.appointments.map((appointment) =>
-          appointment.id === updatedAppointment.id
-            ? { ...appointment, ...updatedAppointment }
-            : appointment
-        ),
-      }));
-    });
+  socket.on("appointment-updated", (updatedAppointment) => {
+    set((state) => ({
+      appointments: state.appointments.map((appointment) =>
+        appointment.id === updatedAppointment.id
+          ? { ...appointment, ...updatedAppointment }
+          : appointment
+      ),
+    }));
+  });
 
-    socket.on("appointment-deleted", (id) => {
-      set((state) => ({
-        appointments: state.appointments.filter(
-          (appointment) => appointment.id !== id
-        ),
-      }));
-    });
+  socket.on("appointment-deleted", (id) => {
+    set((state) => ({
+      appointments: state.appointments.filter(
+        (appointment) => appointment.id !== id
+      ),
+    }));
+  });
 
-    socket.on("appointment-status-updated", ({ id, status }) => {
-      set((state) => ({
-        appointments: state.appointments.map((appointment) =>
-          appointment.id === id ? { ...appointment, status } : appointment
-        ),
-      }));
-    });
-  },
+  socket.on("appointment-status-updated", ({ id, status }) => {
+    set((state) => ({
+      appointments: state.appointments.map((appointment) =>
+        appointment.id === id ? { ...appointment, status } : appointment
+      ),
+    }));
+  });
+
+  // 🚨 NOVO: escuta alterações no schedule (businessHours)
+  socket.on("schedule-updated", ({ day }) => {
+    const selectedDate = get().selectedDate;
+    if (!selectedDate) return;
+
+    const selectedDayKey = dayMap[selectedDate.getDay()];
+    if (selectedDayKey === day) {
+      get().fetchAppointmentsByDate(selectedDate); // Recarrega os horários
+    }
+  });
+},
 
   cleanupSocketListeners: () => {
     socket.off("appointment-created");
     socket.off("appointment-updated");
     socket.off("appointment-deleted");
     socket.off("appointment-status-updated");
+    socket.off("schedule-updated");
   },
 }));
 

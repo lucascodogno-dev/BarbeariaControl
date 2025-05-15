@@ -139,3 +139,17 @@ export const formatDateFull = (date) => {
   const day = date.getDate();
   return `${getDayOfWeek(date)}, ${day} de ${getMonthName(date)}`;
 };
+
+// utils/date.js
+// utils/date.js
+export const isTimeBetween = (time, startTime, endTime) => {
+  const [timeHours, timeMinutes] = time.split(':').map(Number);
+  const [startHours, startMinutes] = startTime.split(':').map(Number);
+  const [endHours, endMinutes] = endTime.split(':').map(Number);
+
+  const timeInMinutes = timeHours * 60 + timeMinutes;
+  const startInMinutes = startHours * 60 + startMinutes;
+  const endInMinutes = endHours * 60 + endMinutes;
+
+  return timeInMinutes >= startInMinutes && timeInMinutes < endInMinutes;
+};
