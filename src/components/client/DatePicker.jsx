@@ -94,13 +94,15 @@ const DatePicker = () => {
       
       // Verifica se o dia está disponível:
       // 1. Não é fim de semana (0 = domingo, 6 = sábado)
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const isSunday = dayOfWeek === 0;
+
       
       // 2. Não é um dia passado
       const isPastDay = date < today;
       
       // Um dia está disponível se: não é fim de semana E (não é dia passado OU é amanhã - 14 de maio)
-      const isAvailable = !isWeekend && (!isPastDay || isTomorrow);
+      const isAvailable = !isSunday && (!isPastDay || isTomorrow);
+
       
       days.push({
         day,
