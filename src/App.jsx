@@ -31,6 +31,8 @@ import { cleanExpiredBookings, removeBooking } from './utils/localStorage';
 // Socket.io
 import socket from './services/socket';
 import ScheduleManager from './pages/admin/ScheduleManager';
+import AdminManualTools from './pages/admin/AdminManualTools';
+import DashboardMnualHorario from './pages/admin/AdminManualTools';
 
 // Componente de proteção de rota para o Admin
 const AdminRoute = ({ children }) => {
@@ -166,6 +168,16 @@ function App() {
             <AdminRoute>
               <AdminLayout>
                 <ScheduleManager />
+              </AdminLayout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/manual"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <DashboardMnualHorario />
               </AdminLayout>
             </AdminRoute>
           }

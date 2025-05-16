@@ -13,7 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../services/firebase";
 import socket from "../services/socket";
-import { generateTimeSlots, isPastTime, isTimeBetween } from "../utils/date";
+import { generateTimeSlots, isTimeBetween } from "../utils/date";
 
 const useAppointmentStore = create((set, get) => ({
   appointments: [],
@@ -45,111 +45,116 @@ const useAppointmentStore = create((set, get) => ({
   },
 
   // Carrega agendamentos para uma data específica
- // Atualize a função fetchAppointmentsByDate
-fetchAppointmentsByDate: async (date) => {
-  set({ loading: true, error: null });
-  try {
-    const dateStr = date.toISOString().split("T")[0];
-    const dayOfWeek = date.getDay();
-    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const dayKey = dayNames[dayOfWeek];
+  // Atualize a função fetchAppointmentsByDate
+  // Dentro de appointmentStore.js
+  fetchAppointmentsByDate: async (date) => {
+    set({ loading: true, error: null });
+    try {
+      const dateStr = date.toISOString().split("T")[0];
+      const dayOfWeek = date.getDay();
+      const dayNames = [
+        "sunday",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+      ];
+      const dayKey = dayNames[dayOfWeek];
+ 
+      const scheduleRef = doc(db, "businessHours", dayKey);
+      const scheduleSnapshot = await getDoc(scheduleRef);
+      const businessHours = scheduleSnapshot.exists()
+        ? scheduleSnapshot.data()
+        : null;
 
-    // Busca os horários de funcionamento
-    const scheduleRef = doc(db, "businessHours", dayKey);
-    const scheduleSnapshot = await getDoc(scheduleRef);
-    const businessHours = scheduleSnapshot.exists() ? scheduleSnapshot.data() : null;
+      if (
+        !businessHours ||
+        businessHours.isClosed ||
+        !businessHours.openingTime ||
+        !businessHours.closingTime
+      ) {
+        set({
+          appointments: [],
+          availableSlots: [],
+          loading: false,
+          selectedDate: date,
+        });
+        return;
+      }
 
-    if (!businessHours || businessHours.isClosed) {
-      console.warn(`[Agendamento] Dia fechado (${dayKey}).`);
-      set({
-        appointments: [],
-        availableSlots: [],
-        loading: false,
-        selectedDate: date
-      });
-      return;
-    }
-
-    // Verificação defensiva de horários válidos
-    if (!businessHours.openingTime || !businessHours.closingTime) {
-      console.error(`[Agendamento] Horários inválidos para ${dayKey}:`, businessHours);
-      set({
-        appointments: [],
-        availableSlots: [],
-        loading: false,
-        selectedDate: date
-      });
-      return;
-    }
-
-    // Busca os agendamentos do dia
-    const appointmentsRef = collection(db, "appointments");
-    const q = query(
-      appointmentsRef,
-      where("date", "==", dateStr),
-      orderBy("time")
-    );
-    const querySnapshot = await getDocs(q);
-    const appointments = [];
-    querySnapshot.forEach((doc) => {
-      appointments.push({ id: doc.id, ...doc.data() });
-    });
-
-    // Gera todos os horários possíveis
-    const allSlots = generateTimeSlots(
-      businessHours.openingTime,
-      businessHours.closingTime,
-      businessHours.slotDuration || 30
-    );
-
-    // Remove horário de almoço
-    let filteredSlots = allSlots;
-    if (
-      businessHours.hasLunchBreak &&
-      businessHours.lunchStart &&
-      businessHours.lunchEnd
-    ) {
-      filteredSlots = allSlots.filter(
-        (slot) => !isTimeBetween(slot, businessHours.lunchStart, businessHours.lunchEnd)
+      const appointmentsRef = collection(db, "appointments");
+      const q = query(
+        appointmentsRef,
+        where("date", "==", dateStr),
+        orderBy("time")
       );
-    }
+      const querySnapshot = await getDocs(q);
+      const appointments = querySnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
 
-    // Elimina horários já passados (somente se for hoje)
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    const isToday = dateStr === todayStr;
+      // 🧱 Busca horários bloqueados
+      const blockedRef = collection(db, "blockedSlots");
+      const blockedQuery = query(blockedRef, where("date", "==", dateStr));
+      const blockedSnapshot = await getDocs(blockedQuery);
+      const blockedTimes = blockedSnapshot.docs.map((doc) => doc.data().time);
 
-    const availableSlots = filteredSlots.map((slot) => {
-      const [hour, minute] = slot.split(":").map(Number);
-      const slotTime = new Date(date);
-      slotTime.setHours(hour, minute, 0, 0);
-
-      const isPastSlotToday = isToday && (slotTime <= now);
-      const hasAppointment = appointments.some(
-        (app) => app.time === slot && app.status !== "cancelado"
+      const allSlots = generateTimeSlots(
+        businessHours.openingTime,
+        businessHours.closingTime,
+        businessHours.slotDuration || 30
       );
 
-      return {
-        time: slot,
-        isBooked: isPastSlotToday || hasAppointment,
-      };
-    });
+      let filteredSlots = allSlots;
+      if (
+        businessHours.hasLunchBreak &&
+        businessHours.lunchStart &&
+        businessHours.lunchEnd
+      ) {
+        filteredSlots = allSlots.filter(
+          (slot) =>
+            !isTimeBetween(
+              slot,
+              businessHours.lunchStart,
+              businessHours.lunchEnd
+            )
+        );
+      }
 
-    set({
-      appointments,
-      availableSlots,
-      loading: false,
-      selectedDate: date,
-    });
+      const now = new Date();
+      const isToday = dateStr === now.toISOString().split("T")[0];
 
-    console.log(`[Agendamento] Horários carregados para ${dayKey}:`, availableSlots);
-  } catch (error) {
-    console.error("Erro ao buscar agendamentos por data:", error);
-    set({ error: error.message, loading: false });
-  }
-},
+      const availableSlots = filteredSlots.map((slot) => {
+        const [hour, minute] = slot.split(":").map(Number);
+        const slotTime = new Date(date);
+        slotTime.setHours(hour, minute, 0, 0);
 
+        const isPastSlotToday = isToday && slotTime <= now;
+        const hasAppointment = appointments.some(
+          (app) => app.time === slot && app.status !== "cancelado"
+        );
+        const isBlocked = blockedTimes.includes(slot);
+
+        return {
+          time: slot,
+          isBooked: isPastSlotToday || hasAppointment || isBlocked,
+        };
+      });
+
+      set({
+        appointments,
+        availableSlots,
+        loading: false,
+        selectedDate: date,
+      });
+    } catch (error) {
+      console.error("Erro ao buscar agendamentos por data:", error);
+      set({ error: error.message, loading: false });
+    }
+  },
 
   // Cria um novo agendamento
   createAppointment: async (appointmentData) => {
@@ -280,9 +285,7 @@ fetchAppointmentsByDate: async (date) => {
 
       set((state) => ({
         appointments: state.appointments.map((appointment) =>
-          appointment.id === id
-            ? { ...appointment, status }
-            : appointment
+          appointment.id === id ? { ...appointment, status } : appointment
         ),
         loading: false,
       }));
@@ -298,9 +301,11 @@ fetchAppointmentsByDate: async (date) => {
   setSelectedTime: (time) => set({ selectedTime: time }),
 
   // Escuta eventos socket
-setupSocketListeners: () => {
+  setupSocketListeners: () => {
   const dayMap = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const get = useAppointmentStore.getState;
 
+  // 📅 Novo agendamento criado
   socket.on("appointment-created", (appointment) => {
     const state = get();
     const selectedStr = state.selectedDate
@@ -326,6 +331,7 @@ setupSocketListeners: () => {
     }
   });
 
+  // 🔄 Agendamento atualizado
   socket.on("appointment-updated", (updatedAppointment) => {
     set((state) => ({
       appointments: state.appointments.map((appointment) =>
@@ -336,6 +342,7 @@ setupSocketListeners: () => {
     }));
   });
 
+  // ❌ Agendamento deletado
   socket.on("appointment-deleted", (id) => {
     set((state) => ({
       appointments: state.appointments.filter(
@@ -344,6 +351,7 @@ setupSocketListeners: () => {
     }));
   });
 
+  // 🟡 Status do agendamento alterado
   socket.on("appointment-status-updated", ({ id, status }) => {
     set((state) => ({
       appointments: state.appointments.map((appointment) =>
@@ -352,17 +360,102 @@ setupSocketListeners: () => {
     }));
   });
 
-  // 🚨 NOVO: escuta alterações no schedule (businessHours)
+  // 🕐 Atualização de horários comerciais
   socket.on("schedule-updated", ({ day }) => {
     const selectedDate = get().selectedDate;
     if (!selectedDate) return;
 
     const selectedDayKey = dayMap[selectedDate.getDay()];
     if (selectedDayKey === day) {
-      get().fetchAppointmentsByDate(selectedDate); // Recarrega os horários
+      get().fetchAppointmentsByDate(selectedDate); // recarrega horários disponíveis
     }
   });
-},
+
+  // ⛔ Bloqueio de horário em tempo real
+  socket.on("slot-blocked", (blocked) => {
+    const selected = get().selectedDate;
+    if (!selected) return;
+
+    const selectedStr = selected.toISOString().split("T")[0];
+    if (blocked.date === selectedStr) {
+      const updatedSlots = get().availableSlots.map((slot) => {
+        if (slot.time === blocked.time) {
+          return { ...slot, isBooked: true };
+        }
+        return slot;
+      });
+
+      set({ availableSlots: updatedSlots });
+    }
+  });
+
+  // ✅ Desbloqueio de horário em tempo real
+  socket.on("slot-unblocked", () => {
+    const selected = get().selectedDate;
+    if (!selected) return;
+
+    // 🔄 Refaz o fetch completo para garantir consistência
+    get().fetchAppointmentsByDate(selected);
+  });
+}
+,
+  getAvailableSlotsForDate: async (date) => {
+    const dateStr = date.toISOString().split("T")[0];
+    const dayOfWeek = date.getDay();
+    const dayNames = [
+      "sunday",
+      "monday",
+      "tuesday",
+      "wednesday",
+      "thursday",
+      "friday",
+      "saturday",
+    ];
+    const dayKey = dayNames[dayOfWeek];
+
+    // Get schedule
+    const scheduleRef = doc(db, "businessHours", dayKey);
+    const scheduleSnap = await getDoc(scheduleRef);
+    if (!scheduleSnap.exists() || scheduleSnap.data().isClosed) return [];
+
+    const schedule = scheduleSnap.data();
+    const allSlots = generateTimeSlots(
+      schedule.openingTime,
+      schedule.closingTime,
+      schedule.slotDuration || 30
+    );
+
+    // filter lunch break
+    let filteredSlots = allSlots;
+    if (schedule.hasLunchBreak && schedule.lunchStart && schedule.lunchEnd) {
+      filteredSlots = allSlots.filter(
+        (slot) => !isTimeBetween(slot, schedule.lunchStart, schedule.lunchEnd)
+      );
+    }
+
+    // appointments
+    const q = query(
+      collection(db, "appointments"),
+      where("date", "==", dateStr)
+    );
+    const bookedSnapshot = await getDocs(q);
+    const bookedTimes = bookedSnapshot.docs.map((doc) => doc.data().time);
+
+    // blocks
+    const blocksQuery = query(collection(db, "blockedSlots"));
+    const blocksSnapshot = await getDocs(blocksQuery);
+    const blockedTimes = blocksSnapshot.docs
+      .filter((doc) => {
+        const d = doc.data();
+        return d.date === dateStr || (d.repeatWeekly && d.weekday === dayKey);
+      })
+      .map((doc) => doc.data().time);
+
+    // build final list
+    return filteredSlots.filter(
+      (slot) => !bookedTimes.includes(slot) && !blockedTimes.includes(slot)
+    );
+  },
 
   cleanupSocketListeners: () => {
     socket.off("appointment-created");
@@ -370,6 +463,8 @@ setupSocketListeners: () => {
     socket.off("appointment-deleted");
     socket.off("appointment-status-updated");
     socket.off("schedule-updated");
+    socket.emit("slot-unblocked");
+    socket.emit("slot-blocked");
   },
 }));
 

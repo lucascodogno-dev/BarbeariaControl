@@ -1,132 +1,160 @@
+import React, { useState, useEffect } from "react";
+import useAppointmentStore from "../../store/appointmentStore";
+import useBlockedSlotStore from "../../store/blockedSlotStore";
 
-import React, { useState, useEffect } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  FiGrid, 
-  FiCalendar, 
-  FiScissors, 
-  FiSettings, 
-  FiLogOut, 
-  FiMenu, 
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import {
+  FiGrid,
+  FiCalendar,
+  FiScissors,
+  FiSettings,
+  FiLogOut,
+  FiMenu,
   FiX,
   FiBell,
   FiUser,
-  FiClock
-} from 'react-icons/fi';
-import ThemeToggle from '../common/ThemeToggle';
-import useAuthStore from '../../store/authStore';
-import useUiStore from '../../store/uiStore';
-import socket from '../../services/socket';
+  FiClock,
+} from "react-icons/fi";
+import ThemeToggle from "../common/ThemeToggle";
+import useAuthStore from "../../store/authStore";
+import useUiStore from "../../store/uiStore";
+import socket from "../../services/socket";
 
 const AdminLayout = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, userProfile } = useAuthStore();
   const { showAlert, toggleSidebar, isSidebarOpen } = useUiStore();
-  
+
   const [notifications, setNotifications] = useState([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const [notificationOpen, setNotificationOpen] = useState(false);
-  
+  useEffect(() => {
+    const appointmentStore = useAppointmentStore.getState();
+    appointmentStore.setupSocketListeners();
+
+    return () => {
+      appointmentStore.cleanupSocketListeners();
+    };
+  }, []);
+useEffect(() => {
+  const blockedStore = useBlockedSlotStore.getState();
+  blockedStore.setupSocketListeners();
+
+  return () => {
+    blockedStore.cleanupSocketListeners();
+  };
+}, []);
+
   // Configura os listeners de socket para notificações
   useEffect(() => {
     // Evento de novo agendamento
-    socket.on('appointment-created', (appointment) => {
+    socket.on("appointment-created", (appointment) => {
       const notification = {
         id: Date.now(),
-        type: 'appointment-created',
-        title: 'Novo agendamento',
-        message: `${appointment.clientName} agendou um ${appointment.serviceName} para ${new Date(appointment.date).toLocaleDateString('pt-BR')} às ${appointment.time}.`,
+        type: "appointment-created",
+        title: "Novo agendamento",
+        message: `${appointment.clientName} agendou um ${
+          appointment.serviceName
+        } para ${new Date(appointment.date).toLocaleDateString("pt-BR")} às ${
+          appointment.time
+        }.`,
         time: new Date().toISOString(),
-        read: false
+        read: false,
       };
-      
-      setNotifications(prev => [notification, ...prev]);
-      setNotificationCount(prev => prev + 1);
-      
+
+      setNotifications((prev) => [notification, ...prev]);
+      setNotificationCount((prev) => prev + 1);
+
       // Exibe alerta
-      showAlert(`Novo agendamento de ${appointment.clientName}`, 'info');
+      showAlert(`Novo agendamento de ${appointment.clientName}`, "info");
     });
-    
+
     // Evento de atualização de agendamento
-    socket.on('appointment-updated', (appointment) => {
+    socket.on("appointment-updated", (appointment) => {
       const notification = {
         id: Date.now(),
-        type: 'appointment-updated',
-        title: 'Agendamento atualizado',
+        type: "appointment-updated",
+        title: "Agendamento atualizado",
         message: `O agendamento de ${appointment.clientName} foi atualizado.`,
         time: new Date().toISOString(),
-        read: false
+        read: false,
       };
-      
-      setNotifications(prev => [notification, ...prev]);
-      setNotificationCount(prev => prev + 1);
+
+      setNotifications((prev) => [notification, ...prev]);
+      setNotificationCount((prev) => prev + 1);
     });
-    
+
     // Evento de atualização de configurações
-    socket.on('settings-updated', (data) => {
-      if (data.type === 'homepage') {
+    socket.on("settings-updated", (data) => {
+      if (data.type === "homepage") {
         const notification = {
           id: Date.now(),
-          type: 'settings-updated',
-          title: 'Configurações atualizadas',
-          message: 'As configurações da página inicial foram atualizadas.',
+          type: "settings-updated",
+          title: "Configurações atualizadas",
+          message: "As configurações da página inicial foram atualizadas.",
           time: new Date().toISOString(),
-          read: false
+          read: false,
         };
-        
-        setNotifications(prev => [notification, ...prev]);
-        setNotificationCount(prev => prev + 1);
+
+        setNotifications((prev) => [notification, ...prev]);
+        setNotificationCount((prev) => prev + 1);
       }
     });
-    
+
     return () => {
-      socket.off('appointment-created');
-      socket.off('appointment-updated');
-      socket.off('settings-updated');
+      socket.off("appointment-created");
+      socket.off("appointment-updated");
+      socket.off("settings-updated");
     };
   }, [showAlert]);
-  
+
   // Verifica se o link está ativo
   const isActive = (path) => {
     return location.pathname === path;
   };
-  
+
   // Manipula logout
   const handleLogout = async () => {
     try {
       await signOut();
-      navigate('/admin/login');
-      showAlert('Logout realizado com sucesso!', 'success');
+      navigate("/admin/login");
+      showAlert("Logout realizado com sucesso!", "success");
     } catch (error) {
-      console.error('Erro ao fazer logout:', error);
-      showAlert('Erro ao fazer logout. Tente novamente.', 'error');
+      console.error("Erro ao fazer logout:", error);
+      showAlert("Erro ao fazer logout. Tente novamente.", "error");
     }
   };
-  
+
   // Marca todas as notificações como lidas
   const markAllAsRead = () => {
-    setNotifications(prev => 
-      prev.map(notification => ({ ...notification, read: true }))
+    setNotifications((prev) =>
+      prev.map((notification) => ({ ...notification, read: true }))
     );
     setNotificationCount(0);
   };
-  
+
   // Fecha o menu de notificações quando clica fora
   useEffect(() => {
     const handleClickOutside = (event) => {
-      const notificationElement = document.getElementById('notification-dropdown');
-      if (notificationElement && !notificationElement.contains(event.target) && !event.target.closest('#notification-button')) {
+      const notificationElement = document.getElementById(
+        "notification-dropdown"
+      );
+      if (
+        notificationElement &&
+        !notificationElement.contains(event.target) &&
+        !event.target.closest("#notification-button")
+      ) {
         setNotificationOpen(false);
       }
     };
-    
-    document.addEventListener('mousedown', handleClickOutside);
+
+    document.addEventListener("mousedown", handleClickOutside);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
-  
+
   return (
     <div className="min-h-screen flex bg-gray-50 dark:bg-gray-900 transition-colors">
       {/* Sidebar para desktop */}
@@ -143,87 +171,98 @@ const AdminLayout = ({ children }) => {
               </span>
             </Link>
           </div>
-          
+
           {/* Sidebar content */}
           <div className="flex-1 flex flex-col py-4 overflow-y-auto">
-           <nav className="flex-1 px-2 space-y-1">
-  <Link
-    to="/admin/dashboard"
-    className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
-      isActive('/admin/dashboard')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-  >
-    <FiGrid className="mr-3 h-5 w-5" />
-    Dashboard
-  </Link>
-  
-  <Link
-    to="/admin/appointments"
-    className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
-      isActive('/admin/appointments')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-  >
-    <FiCalendar className="mr-3 h-5 w-5" />
-    Agendamentos
-  </Link>
-  
-  <Link
-    to="/admin/services"
-    className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
-      isActive('/admin/services')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-  >
-    <FiScissors className="mr-3 h-5 w-5" />
-    Serviços
-  </Link>
+            <nav className="flex-1 px-2 space-y-1">
+              <Link
+                to="/admin/dashboard"
+                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
+                  isActive("/admin/dashboard")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                <FiGrid className="mr-3 h-5 w-5" />
+                Dashboard
+              </Link>
 
-  {/* Novo link para Horários de Atendimento */}
-  <Link
-    to="/admin/schedule"
-    className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
-      isActive('/admin/schedule')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-  >
-    <FiClock className="mr-3 h-5 w-5" />
-    Horários
-  </Link>
-  
-  <Link
-    to="/admin/settings"
-    className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
-      isActive('/admin/settings')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-  >
-    <FiSettings className="mr-3 h-5 w-5" />
-    Configurações
-  </Link>
-</nav>
+              <Link
+                to="/admin/appointments"
+                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
+                  isActive("/admin/appointments")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                <FiCalendar className="mr-3 h-5 w-5" />
+                Agendamentos
+              </Link>
+
+              <Link
+                to="/admin/services"
+                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
+                  isActive("/admin/services")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                <FiScissors className="mr-3 h-5 w-5" />
+                Serviços
+              </Link>
+
+              {/* Novo link para Horários de Atendimento */}
+              <Link
+                to="/admin/schedule"
+                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
+                  isActive("/admin/schedule")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                <FiClock className="mr-3 h-5 w-5" />
+                Horários
+              </Link>
+              <Link
+                to="/admin/manual"
+                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
+                  isActive("/admin/manual")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                <FiUser className="mr-3 h-5 w-5" />
+                Manual
+              </Link>
+
+              <Link
+                to="/admin/settings"
+                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
+                  isActive("/admin/settings")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                <FiSettings className="mr-3 h-5 w-5" />
+                Configurações
+              </Link>
+            </nav>
           </div>
-          
+
           {/* User info */}
           <div className="flex-shrink-0 flex border-t border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center">
               <div className="flex-shrink-0">
                 <div className="h-8 w-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                  {userProfile?.name?.charAt(0)?.toUpperCase() || 'A'}
+                  {userProfile?.name?.charAt(0)?.toUpperCase() || "A"}
                 </div>
               </div>
               <div className="ml-3 min-w-0 flex-1">
                 <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {userProfile?.name || 'Admin'}
+                  {userProfile?.name || "Admin"}
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  {userProfile?.email || 'admin@example.com'}
+                  {userProfile?.email || "admin@example.com"}
                 </div>
               </div>
               <button
@@ -237,25 +276,27 @@ const AdminLayout = ({ children }) => {
           </div>
         </div>
       </div>
-      
+
       {/* Mobile sidebar */}
       <div
         className={`md:hidden fixed inset-0 z-40 flex ${
-          isSidebarOpen ? 'visible' : 'invisible'
+          isSidebarOpen ? "visible" : "invisible"
         }`}
       >
         {/* Backdrop */}
         <div
           className={`fixed inset-0 bg-gray-600 bg-opacity-75 transition-opacity ${
-            isSidebarOpen ? 'opacity-100 ease-out duration-300' : 'opacity-0 ease-in duration-200'
+            isSidebarOpen
+              ? "opacity-100 ease-out duration-300"
+              : "opacity-0 ease-in duration-200"
           }`}
           onClick={toggleSidebar}
         ></div>
-        
+
         {/* Sidebar */}
         <div
           className={`relative flex-1 flex flex-col max-w-xs w-full bg-white dark:bg-gray-800 transform transition ease-in-out duration-300 ${
-            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+            isSidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
           <div className="absolute top-0 right-0 -mr-12 pt-2">
@@ -267,7 +308,7 @@ const AdminLayout = ({ children }) => {
               <FiX className="h-6 w-6 text-white" />
             </button>
           </div>
-          
+
           <div className="flex items-center h-16 px-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center">
               <div className="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-sm mr-2">
@@ -278,87 +319,98 @@ const AdminLayout = ({ children }) => {
               </span>
             </div>
           </div>
-          
-          <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
-           <nav className="mt-5 px-2 space-y-1">
-  <Link
-    to="/admin/dashboard"
-    className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
-      isActive('/admin/dashboard')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-    onClick={toggleSidebar}
-  >
-    <FiGrid className="mr-3 h-5 w-5" />
-    Dashboard
-  </Link>
-  
-  <Link
-    to="/admin/appointments"
-    className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
-      isActive('/admin/appointments')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-    onClick={toggleSidebar}
-  >
-    <FiCalendar className="mr-3 h-5 w-5" />
-    Agendamentos
-  </Link>
-  
-  <Link
-    to="/admin/services"
-    className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
-      isActive('/admin/services')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-    onClick={toggleSidebar}
-  >
-    <FiScissors className="mr-3 h-5 w-5" />
-    Serviços
-  </Link>
 
-  {/* Novo link para Horários de Atendimento (mobile) */}
-  <Link
-    to="/admin/schedule"
-    className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
-      isActive('/admin/schedule')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-    onClick={toggleSidebar}
-  >
-    <FiClock className="mr-3 h-5 w-5" />
-    Horários
-  </Link>
-  
-  <Link
-    to="/admin/settings"
-    className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
-      isActive('/admin/settings')
-        ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
-        : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-    }`}
-    onClick={toggleSidebar}
-  >
-    <FiSettings className="mr-3 h-5 w-5" />
-    Configurações
-  </Link>
-  
-  <button
-    onClick={handleLogout}
-    className="flex w-full items-center px-3 py-2 text-base font-medium rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-  >
-    <FiLogOut className="mr-3 h-5 w-5" />
-    Sair
-  </button>
-</nav>
+          <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
+            <nav className="mt-5 px-2 space-y-1">
+              <Link
+                to="/admin/dashboard"
+                className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
+                  isActive("/admin/dashboard")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+                onClick={toggleSidebar}
+              >
+                <FiGrid className="mr-3 h-5 w-5" />
+                Dashboard
+              </Link>
+
+              <Link
+                to="/admin/appointments"
+                className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
+                  isActive("/admin/appointments")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+                onClick={toggleSidebar}
+              >
+                <FiCalendar className="mr-3 h-5 w-5" />
+                Agendamentos
+              </Link>
+
+              <Link
+                to="/admin/services"
+                className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
+                  isActive("/admin/services")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+                onClick={toggleSidebar}
+              >
+                <FiScissors className="mr-3 h-5 w-5" />
+                Serviços
+              </Link>
+
+              {/* Novo link para Horários de Atendimento (mobile) */}
+              <Link
+                to="/admin/schedule"
+                className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
+                  isActive("/admin/schedule")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+                onClick={toggleSidebar}
+              >
+                <FiClock className="mr-3 h-5 w-5" />
+                Horários
+              </Link>
+              <Link
+                to="/admin/manual"
+                className={`flex items-center px-3 py-2 text-sm font-medium rounded-md ${
+                  isActive("/admin/manual")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+              >
+                <FiUser className="mr-3 h-5 w-5" />
+                Manual
+              </Link>
+
+              <Link
+                to="/admin/settings"
+                className={`flex items-center px-3 py-2 text-base font-medium rounded-md ${
+                  isActive("/admin/settings")
+                    ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300"
+                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white"
+                }`}
+                onClick={toggleSidebar}
+              >
+                <FiSettings className="mr-3 h-5 w-5" />
+                Configurações
+              </Link>
+
+              <button
+                onClick={handleLogout}
+                className="flex w-full items-center px-3 py-2 text-base font-medium rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+              >
+                <FiLogOut className="mr-3 h-5 w-5" />
+                Sair
+              </button>
+            </nav>
           </div>
         </div>
       </div>
-      
+
       {/* Main content */}
       <div className="flex flex-col w-0 flex-1 overflow-hidden">
         {/* Top navbar */}
@@ -370,16 +422,18 @@ const AdminLayout = ({ children }) => {
             <span className="sr-only">Abrir sidebar</span>
             <FiMenu className="h-6 w-6" />
           </button>
-          
+
           <div className="flex-1 px-4 flex justify-between">
             <div className="flex-1 flex items-center">
-           <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
-  {location.pathname === '/admin/dashboard' && 'Dashboard'}
-  {location.pathname === '/admin/appointments' && 'Agendamentos'}
-  {location.pathname === '/admin/services' && 'Serviços'}
-  {location.pathname === '/admin/schedule' && 'Horários de Atendimento'}
-  {location.pathname === '/admin/settings' && 'Configurações'}
-</h1>
+              <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
+                {location.pathname === "/admin/dashboard" && "Dashboard"}
+                {location.pathname === "/admin/appointments" && "Agendamentos"}
+                {location.pathname === "/admin/services" && "Serviços"}
+                {location.pathname === "/admin/schedule" &&
+                  "Horários de Atendimento"}
+                {location.pathname === "/admin/manual" && "Manual"}
+                {location.pathname === "/admin/settings" && "Configurações"}
+              </h1>
             </div>
             <div className="ml-4 flex items-center md:ml-6">
               {/* Notification dropdown */}
@@ -397,7 +451,7 @@ const AdminLayout = ({ children }) => {
                     </span>
                   )}
                 </button>
-                
+
                 {notificationOpen && (
                   <div
                     id="notification-dropdown"
@@ -417,12 +471,10 @@ const AdminLayout = ({ children }) => {
                           </button>
                         )}
                       </div>
-                      
+
                       {notifications.length === 0 ? (
                         <div className="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
-                          <p className="text-sm">
-                            Nenhuma notificação.
-                          </p>
+                          <p className="text-sm">Nenhuma notificação.</p>
                         </div>
                       ) : (
                         <div className="max-h-60 overflow-y-auto">
@@ -431,21 +483,26 @@ const AdminLayout = ({ children }) => {
                               key={notification.id}
                               className={`px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-750 ${
                                 !notification.read
-                                  ? 'bg-indigo-50 dark:bg-indigo-900/10'
-                                  : ''
+                                  ? "bg-indigo-50 dark:bg-indigo-900/10"
+                                  : ""
                               }`}
                             >
                               <div className="flex">
-                                <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${
-                                  notification.type === 'appointment-created'
-                                    ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                                    : notification.type === 'appointment-updated'
-                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                                    : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
-                                }`}>
-                                  {notification.type === 'appointment-created' ? (
+                                <div
+                                  className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${
+                                    notification.type === "appointment-created"
+                                      ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                                      : notification.type ===
+                                        "appointment-updated"
+                                      ? "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+                                      : "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
+                                  }`}
+                                >
+                                  {notification.type ===
+                                  "appointment-created" ? (
                                     <FiCalendar size={14} />
-                                  ) : notification.type === 'appointment-updated' ? (
+                                  ) : notification.type ===
+                                    "appointment-updated" ? (
                                     <FiUser size={14} />
                                   ) : (
                                     <FiSettings size={14} />
@@ -459,9 +516,11 @@ const AdminLayout = ({ children }) => {
                                     {notification.message}
                                   </p>
                                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                                    {new Date(notification.time).toLocaleTimeString('pt-BR', {
-                                      hour: '2-digit',
-                                      minute: '2-digit'
+                                    {new Date(
+                                      notification.time
+                                    ).toLocaleTimeString("pt-BR", {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
                                     })}
                                   </p>
                                 </div>
@@ -474,7 +533,7 @@ const AdminLayout = ({ children }) => {
                   </div>
                 )}
               </div>
-              
+
               {/* Theme toggle */}
               <div className="ml-3">
                 <ThemeToggle />
@@ -482,7 +541,7 @@ const AdminLayout = ({ children }) => {
             </div>
           </div>
         </div>
-        
+
         {/* Page content */}
         <main className="flex-1 overflow-y-auto focus:outline-none">
           {children}
